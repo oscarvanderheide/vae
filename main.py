@@ -2,6 +2,9 @@
 
 # External libraries
 import numpy as np
+import matplotlib
+
+matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import torch
 import pytorch_lightning as pl
@@ -16,6 +19,7 @@ from src.vae_backbones import MLPParams, ConvParams
 # Assuming wandb has been initialized
 wandb_logger = WandbLogger(project="MNIST", log_model="all")
 
+torch.set_float32_matmul_precision("medium")
 
 # %% Create datamodule and loaders for MNIST dataset
 mnist_datamodule = MNISTDataModule()
@@ -24,24 +28,24 @@ train_loader = mnist_datamodule.train_dataloader()
 val_loader = mnist_datamodule.val_dataloader()
 # Determine shape of input images, needed to initalize the model
 
-x = next(iter(train_loader))
-input_shape = tuple(x[0].shape[1::])  # Should be (1,28,28)
+x, _ = next(iter(train_loader))
+input_shape = tuple(x[0].shape)  # Should be (1,28,28)
 print(input_shape)
 
 # %% Load model
 
 # There is an AbstractVAE model which is a Pytorch Lightning module and contains
-# most of the methods needed for a VAE except for the loss function. 
+# most of the methods needed for a VAE except for the loss function.
 
 # The StandardVAE is a concrete subclass of AbstractVAE that does contain a loss
-# function consisting of a reconstructio loss and KL divergence term. No other VAE 
+# function consisting of a reconstructio loss and KL divergence term. No other VAE
 # variants have been implemented at the moment.
 
 # Under the hood, a VAE contains an encoder and a decoder. The encoder first maps
-# an input sample to a feature vector. The feature vector is then mapped to a 
+# an input sample to a feature vector. The feature vector is then mapped to a
 # mean and (log) variance in latent space through fully-connected layers.
 # The decoder takes a sampled latent vector, maps it to a feature vector with a
-# fully-connected layer and then generates a sample using a procedure that is 
+# fully-connected layer and then generates a sample using a procedure that is
 # like the inverse of the feature extractor. The feature extractor and sample generator
 # together are referred to as the "backbone" of the VAE.
 
@@ -78,7 +82,7 @@ assert x_recon.shape == x.shape
 
 # %% Assemble trainer and train
 
-max_epochs = 5
+max_epochs = 10
 trainer = pl.Trainer(max_epochs=max_epochs, logger=wandb_logger)
 trainer.fit(model, train_loader, val_loader)
 
@@ -200,3 +204,4 @@ x_recon, _, _ = model.forward(x)
 plot_samples_and_reconstructions(
     x, x_recon, title="Samples and Reconstructions with added rectangles"
 )
+# %%

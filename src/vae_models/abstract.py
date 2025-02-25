@@ -99,8 +99,8 @@ class AbstractVAE(pl.LightningModule, ABC):
     def encoder(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor):
         x = self.sample_to_feature_vec(x)
         z_mean = self.feature_vec_to_z_mean(x)
-        z_z_logvar = self.feature_vec_to_z_logvar(x)
-        return z_mean, z_z_logvar
+        z_logvar = self.feature_vec_to_z_logvar(x)
+        return z_mean, z_logvar
 
     def sample_latent_vec(
         self, z_mean: torch.Tensor, z_logvar: torch.Tensor

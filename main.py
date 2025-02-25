@@ -13,8 +13,17 @@ import torch.nn.functional as F
 
 # Modules from this project
 from datasets.mnist import MNISTDataModule
-from src.vae_models import StandardVAE
-from src.vae_backbones import MLPParams, ConvParams
+
+# Import the different VAE models (e.g. StandardVAE)
+import src.vae_models as models
+
+# Import the different backbones (e.g. convolutional, MLP).
+# The backbones don't have classes themselves, instead,
+# the parameters for the backbones are imported. Those parameters are passed to
+# the VAE model which then initializes the backbone.
+
+
+import src.vae_backbones as backbones
 
 # Assuming wandb has been initialized
 wandb_logger = WandbLogger(project="MNIST", log_model="all")
@@ -50,9 +59,9 @@ print(input_shape)
 # together are referred to as the "backbone" of the VAE.
 
 # Use Convolutional backbone
-backbone_params = ConvParams()
+backbone_params = backbones.ConvParams()
 # Alternative: Use MLP backbone
-# backbone_params = MLPParams()
+# backbone_params = backbones.MLPParams()
 
 # Set VAE options
 kl_weight = 2.0
@@ -61,7 +70,7 @@ learning_rate = 1e-3
 recon_loss_function = F.binary_cross_entropy
 
 # Initialize the VAE model
-model = StandardVAE(
+model = models.StandardVAE(
     input_shape,
     latent_dim,
     backbone_params,

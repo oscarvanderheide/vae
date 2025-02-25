@@ -124,6 +124,7 @@ class AbstractVAE(pl.LightningModule, ABC):
         recon_x, z_mean, z_logvar = self.forward(x)
         loss = self.loss_function(recon_x, x, z_mean, z_logvar)
         self.log("train_loss", loss, prog_bar=True)
+
         return loss
 
     def validation_step(self, batch: torch.Tensor, batch_idx: int) -> float:
@@ -136,14 +137,13 @@ class AbstractVAE(pl.LightningModule, ABC):
 
     def configure_optimizers(self):
         """Configure the optimizer."""
-        return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
-
-    def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         scheduler = {
-            'scheduler': torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5, factor=0.5),
-            'monitor': 'val_loss',  # Reduce LR when val_loss stops improving
-            'interval': 'epoch',    # Check after each epoch
-            'frequency': 1
+            "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer, mode="min", patience=5, factor=0.5
+            ),
+            "monitor": "val_loss",  # Reduce LR when val_loss stops improving
+            "interval": "epoch",  # Check after each epoch
+            "frequency": 1,
         }
         return {"optimizer": optimizer, "lr_scheduler": scheduler}

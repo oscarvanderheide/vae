@@ -88,7 +88,7 @@ assert x_recon.shape == x.shape
 
 # %% Assemble trainer and train
 
-max_epochs = 50
+max_epochs = 10
 trainer = pl.Trainer(
     max_epochs=max_epochs,
     logger=wandb_logger,

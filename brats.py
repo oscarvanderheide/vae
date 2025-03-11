@@ -27,7 +27,7 @@ torch.set_float32_matmul_precision("medium")
 pl.seed_everything(42, workers=True)
 
 # %% Create datamodule and loaders for BraTS dataset
-brats_datamodule = BraTSDataModule("data/BraTS/raw", batch_size=64, num_workers=7)
+brats_datamodule = BraTSDataModule("data/BraTS/raw", batch_size=8, num_workers=2)
 brats_datamodule.setup()
 train_loader = brats_datamodule.train_dataloader()
 val_loader = brats_datamodule.val_dataloader()
@@ -36,6 +36,10 @@ val_loader = brats_datamodule.val_dataloader()
 x, _ = next(iter(train_loader))
 input_shape = tuple(x[0].shape)  # Should be (1,240,240)
 print(input_shape)
+
+# %% Display some samples from the dataset
+# from arrayshow import arrayshow
+# arrayshow(x.numpy())
 
 # %% Load model
 
@@ -61,7 +65,7 @@ backbone_params = ConvParams(activation=nn.ReLU)
 
 # Set VAE options
 kl_weight = 0.0
-latent_dim = 64
+latent_dim = 256
 learning_rate = 1e-4
 recon_loss_function = F.mse_loss
 
@@ -88,14 +92,20 @@ assert x_recon.shape == x.shape
 
 # %% Assemble trainer and train
 
-max_epochs = 10
+max_epochs = 1000
 trainer = pl.Trainer(
     max_epochs=max_epochs,
     logger=wandb_logger,
     log_every_n_steps=1,
-    # gradient_clip_val=0.50,
-    enable_checkpointing=False,
-    deterministic=True,
+    gradient_clip_val=1.0,
+    callbacks=[
+        pl.callbacks.LearningRateMonitor(logging_interval='step'),
+        # pl.callbacks.EarlyStopping(
+        #     monitor='val_loss',
+        #     patience=20,
+        #     mode='min'
+        # )
+    ]
 )
 trainer.fit(model, train_loader, val_loader)
 
@@ -105,11 +115,11 @@ trainer.fit(model, train_loader, val_loader)
 def plot_samples_and_reconstructions(x, x_recon, title="Samples and Reconstructions"):
     """Plot original and reconstructed images in a grid."""
 
-    images = [x[i + j, 1].detach().cpu().numpy() for i in [0, 4, 8, 12] for j in [0, 1]]
+    images = [x[i + j, 0].detach().cpu().numpy() for i in [0,2,4,6] for j in [0, 1]]
     images = np.reshape(images, (4, 2, 240, 240))
 
     recons = [
-        x_recon[i + j, 0].detach().cpu().numpy() for i in [0, 4, 8, 12] for j in [0, 1]
+        x_recon[i + j, 0].detach().cpu().numpy() for i in [0,2,4,6] for j in [0, 1]
     ]
     recons = np.reshape(recons, (4, 2, 240, 240))
     fig, ax = plt.subplots(4, 4, figsize=(10, 10))
@@ -139,76 +149,76 @@ x_recon, _, _ = model.forward(x)
 
 plot_samples_and_reconstructions(x, x_recon)
 
-# %% Interpolate between four digits
-x, _ = next(iter(train_loader))
-x1 = x[0].unsqueeze(0)
-x2 = x[1].unsqueeze(0)
-x3 = x[2].unsqueeze(0)
-x4 = x[3].unsqueeze(0)
+# # %% Interpolate between four digits
+# x, _ = next(iter(train_loader))
+# x1 = x[0].unsqueeze(0)
+# x2 = x[1].unsqueeze(0)
+# x3 = x[2].unsqueeze(0)
+# x4 = x[3].unsqueeze(0)
 
-# Encode the samples
-z_mean1, z_logvar1 = model.encoder(x1)
-z_mean2, z_logvar2 = model.encoder(x2)
-z_mean3, z_logvar3 = model.encoder(x3)
-z_mean4, z_logvar4 = model.encoder(x4)
+# # Encode the samples
+# z_mean1, z_logvar1 = model.encoder(x1)
+# z_mean2, z_logvar2 = model.encoder(x2)
+# z_mean3, z_logvar3 = model.encoder(x3)
+# z_mean4, z_logvar4 = model.encoder(x4)
 
-# Sample latent vectors
-z1 = model.sample_latent_vec(z_mean1, z_logvar1)
-z2 = model.sample_latent_vec(z_mean2, z_logvar2)
-z3 = model.sample_latent_vec(z_mean3, z_logvar3)
-z4 = model.sample_latent_vec(z_mean4, z_logvar4)
+# # Sample latent vectors
+# z1 = model.sample_latent_vec(z_mean1, z_logvar1)
+# z2 = model.sample_latent_vec(z_mean2, z_logvar2)
+# z3 = model.sample_latent_vec(z_mean3, z_logvar3)
+# z4 = model.sample_latent_vec(z_mean4, z_logvar4)
 
-# Create a grid of interpolations
-n_rows, n_cols = 8, 16
-z_interpolated = torch.zeros((n_rows, n_cols, z1.size(1)))
+# # Create a grid of interpolations
+# n_rows, n_cols = 8, 16
+# z_interpolated = torch.zeros((n_rows, n_cols, z1.size(1)))
 
-for i in range(n_rows):
-    for j in range(n_cols):
-        # Interpolate between the four corners
-        z_interpolated[i, j] = (
-            z1 * (1 - i / (n_rows - 1)) * (1 - j / (n_cols - 1))
-            + z2 * (1 - i / (n_rows - 1)) * (j / (n_cols - 1))
-            + z3 * (i / (n_rows - 1)) * (1 - j / (n_cols - 1))
-            + z4 * (i / (n_rows - 1)) * (j / (n_cols - 1))
-        )
+# for i in range(n_rows):
+#     for j in range(n_cols):
+#         # Interpolate between the four corners
+#         z_interpolated[i, j] = (
+#             z1 * (1 - i / (n_rows - 1)) * (1 - j / (n_cols - 1))
+#             + z2 * (1 - i / (n_rows - 1)) * (j / (n_cols - 1))
+#             + z3 * (i / (n_rows - 1)) * (1 - j / (n_cols - 1))
+#             + z4 * (i / (n_rows - 1)) * (j / (n_cols - 1))
+#         )
 
-# Decode the interpolated latent vectors
-x_interpolated = model.decoder(z_interpolated.view(-1, z1.size(1)))
+# # Decode the interpolated latent vectors
+# x_interpolated = model.decoder(z_interpolated.view(-1, z1.size(1)))
 
-fig, ax = plt.subplots(1, 1, figsize=(n_cols, n_rows))
-fig.suptitle("Interpolated between four digits", fontsize=16)
+# fig, ax = plt.subplots(1, 1, figsize=(n_cols, n_rows))
+# fig.suptitle("Interpolated between four digits", fontsize=16)
 
-# Concatenate the images into a single large array
-large_image = np.concatenate(
-    [
-        np.concatenate(
-            [
-                x_interpolated[i * n_cols + j, 0, :, :].detach().numpy()
-                for j in range(n_cols)
-            ],
-            axis=1,
-        )
-        for i in range(n_rows)
-    ],
-    axis=0,
-)
+# # Concatenate the images into a single large array
+# large_image = np.concatenate(
+#     [
+#         np.concatenate(
+#             [
+#                 x_interpolated[i * n_cols + j, 0, :, :].detach().numpy()
+#                 for j in range(n_cols)
+#             ],
+#             axis=1,
+#         )
+#         for i in range(n_rows)
+#     ],
+#     axis=0,
+# )
 
-ax.imshow(large_image, cmap="gray")
-ax.axis("off")
+# ax.imshow(large_image, cmap="gray")
+# ax.axis("off")
 
-plt.show()
+# plt.show()
 
-# %% Add rectangles to samples
+# # %% Add rectangles to samples
 
-# Take a digit and add a strange rectangle somewhere to see how it deals with such unseen data
-x, _ = next(iter(val_loader))
+# # Take a digit and add a strange rectangle somewhere to see how it deals with such unseen data
+# x, _ = next(iter(val_loader))
 
-# Modify the images
-x[:, 0, 10:25, 10:15] = 1
+# # Modify the images
+# x[:, 0, 10:25, 10:15] = 1
 
-x_recon, _, _ = model.forward(x)
+# x_recon, _, _ = model.forward(x)
 
-plot_samples_and_reconstructions(
-    x, x_recon, title="Samples and Reconstructions with added rectangles"
-)
-# %%
+# plot_samples_and_reconstructions(
+#     x, x_recon, title="Samples and Reconstructions with added rectangles"
+# )
+# # %%

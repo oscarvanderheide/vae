@@ -94,6 +94,7 @@ class AbstractVAE(pl.LightningModule, ABC):
         z_mean, z_logvar = self.encoder(x)
         z = self.sample_latent_vec(z_mean, z_logvar)
         recon_x = self.decoder(z)
+        recon_x = nn.Sigmoid()(recon_x) * 6 - 3
         return recon_x, z_mean, z_logvar
 
     def encoder(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor):
@@ -107,7 +108,8 @@ class AbstractVAE(pl.LightningModule, ABC):
     ) -> torch.Tensor:
         """Sample from the latent space using the reparametrization trick."""
         # Add Softplus?
-        std = torch.exp(0.5 * z_logvar)
+        # std = torch.exp(0.5 * z_logvar)
+        std = torch.nn.functional.softplus(0.5 * z_logvar)
         eps = torch.randn_like(std)
         z = z_mean + eps * std
         return z
@@ -123,6 +125,10 @@ class AbstractVAE(pl.LightningModule, ABC):
         x, _ = batch
         recon_x, z_mean, z_logvar = self.forward(x)
         loss = self.loss_function(recon_x, x, z_mean, z_logvar)
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+
+        self.log("grad_norm", grad_norm, prog_bar=True)
+
         self.log("train_loss", loss, prog_bar=True)
 
         return loss
@@ -147,3 +153,23 @@ class AbstractVAE(pl.LightningModule, ABC):
             "frequency": 1,
         }
         return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
+    # def configure_optimizers(self):
+    #     optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+    #
+    #     warmup_steps = 10 * 8
+    #     total_steps = 50 * 8
+    #
+    #     def lr_lambda(current_step):
+    #         if current_step < warmup_steps:
+    #             lr = current_step / warmup_steps  # Linear warmup
+    #         else:
+    #             lr = max(
+    #                 0.0,
+    #                 (total_steps - current_step) / (total_steps - warmup_steps),
+    #             )
+    #         print(f"Step {current_step}, Learning Rate: {lr * 1e-3}")
+    #         return lr
+    #
+    #     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+    #     return [optimizer], [{"scheduler": scheduler, "interval": "step"}]

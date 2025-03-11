@@ -7,11 +7,11 @@ class ConvParams:
     """Holds parameters needed to instantiate convolutional feature extractor
     and sample generator modules that can form the backbone of a VAE."""
 
-    hidden_dims: list = (32, 64, 128)
+    hidden_dims: list = (32, 64, 128, 256, 512)
     conv_layer: nn.Module = nn.Conv2d
     conv_transpose_layer: nn.Module = nn.ConvTranspose2d
     normalization: nn.Module = nn.BatchNorm2d
-    activation: nn.Module = nn.ReLU
+    activation: nn.Module = nn.LeakyReLU
     output_scaling: nn.Module = nn.Sigmoid
     kernel_size: int = 3
     stride: int = 2
@@ -168,7 +168,7 @@ def _assemble_conv_sample_generator(sample_shape, params):
     # )
 
     # Scale output (for example to be between 0 and 1 if inputs have been scaled in such a way as well)
-    generator_modules.append(p.output_scaling())
+    # generator_modules.append(p.output_scaling())
 
     return nn.Sequential(*generator_modules)
 

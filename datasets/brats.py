@@ -18,8 +18,7 @@ class BraTSDataset(Dataset):
         #     glob.glob(os.path.join(data_dir, "volume_*_slice_*.h5"))
         # )
         self.file_paths = sorted(
-            glob.glob(os.path.join(data_dir, "volume_*_slice_80.h5"))
-        )
+            glob.glob(os.path.join(data_dir, "volume_*_slice_80.h5")))[0:47]
 
     def __len__(self):
         return len(self.file_paths)
@@ -31,12 +30,36 @@ class BraTSDataset(Dataset):
         # Move channel dimension to first axis
         img = np.moveaxis(img, -1, 0)
 
-        # Normalize per channel
-        img = (img - img.min(axis=(1, 2), keepdims=True)) / (
-            img.max(axis=(1, 2), keepdims=True)
-            - img.min(axis=(1, 2), keepdims=True)
-            + 1e-8
-        )
+        # Normalize per channel using z-score normalization with 5th percentile
+        for c in range(img.shape[0]):
+            channel = img[c,:,:]
+
+            # Get non-zero values
+            non_zero_indices = np.where(channel > 0)
+            non_zero_values = channel[non_zero_indices]
+
+            if len(non_zero_values) > 0:
+                # Get 5th percentile of non-zero values
+                p5 = np.percentile(non_zero_values, 0.05)
+                
+                # Get values above 5th percentile
+                valid_indices = np.where(channel > p5)
+                valid_values = channel[valid_indices]
+
+                # Compute mean and std of values above 5th percentile
+                mean = np.mean(valid_values)
+                std = np.std(valid_values)
+
+                # Set values below 5th percentile to 0
+                channel[channel <= p5] = 0
+
+                # Apply normalization to values above 5th percentile
+                channel[valid_indices] = (valid_values - mean) / (std + 1e-8)
+                
+
+
+        # Select only first channel (T1W) while keeping channel dim
+        img = img[0:1, :, :]
 
         if self.transform:
             img = self.transform(img)

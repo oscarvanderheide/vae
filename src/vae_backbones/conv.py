@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 
+import torch
 import torch.nn as nn
 
 
 @dataclass
-class ConvParams_without_skip_connections:
+class ConvParams:
     """Holds parameters needed to instantiate a convolutional feature extractor
     and sample generator modules that can form the backbone of a VAE.
 
@@ -18,6 +19,7 @@ class ConvParams_without_skip_connections:
     - kernel_size: Size of the convolutional kernel (default: 3).
     - stride: Stride of the convolutional layer (default: 2).
     - padding: Padding added to the input (default: 1).
+    - use_skip_connections: Boolean indicating whether to use skip connections (default: True).
     """
 
     hidden_dims: list = (32, 64, 128)
@@ -29,97 +31,98 @@ class ConvParams_without_skip_connections:
     kernel_size: int = 3
     stride: int = 2
     padding: int = 1
+    use_skip_connections: bool = True
 
 
-def _assemble_conv_backbone(
-    sample_shape: list,
-    params: ConvParams_without_skip_connections,
-):
-    """Assemble a convolutional feature extractor and sample generator that can form
-    the backbone of a variational auto-encoder.
+class ConvBackbone(nn.Module):
+    """Convolutional backbone for VAE, handling feature extraction and sample generation."""
 
-    Args:
-        sample_shape (list): Shape of the input samples (excluding batch dimension).
-        params (ConvParams_without_skip_connections): Parameters specific to the convolution-based networks.
-    """
-    feature_extractor = _assemble_conv_feature_extractor(sample_shape, params)
-    sample_generator = _assemble_conv_sample_generator(sample_shape, params)
+    def __init__(self, sample_shape: list, params: ConvParams):
+        super().__init__()
+        self.params = params
+        self.sample_shape = sample_shape
+        self.shapes_per_layer = self._calculate_shape_per_layer()
+        self._build_feature_extractor()
+        self._build_sample_generator()
 
-    return feature_extractor, sample_generator
+    def _build_feature_extractor(self):
+        """Builds the convolutional feature extractor layers."""
+        input_chan_dim = self.sample_shape[0]
+        p = self.params
+        self.feature_extractor_layers = nn.ModuleList()
 
-
-def _assemble_conv_feature_extractor(sample_shape, params):
-    """Convolutional feature extractor that maps an input sample to a
-    feature vector.
-
-    The feature extractor is the backbone of the encoder within a
-    variational auto-encoder. This variant consists of multiple layers, each following
-    the sequence: convolution, normalization, and activation.
-    Afterwards the input may still have spatial dimensions and therefore
-    it is flattened before being passed through a fully-connected layer
-    that maps the features to latent space.
-
-    Note that the length of the feature vector is dependent on the input shape
-    while the latent space dimension is not.
-
-    """
-    input_chan_dim = sample_shape[0]
-    p = params
-
-    extractor_modules = []
-
-    for i, hidden_dim in enumerate(p.hidden_dims):
-        chan_dim_before_conv = input_chan_dim if i == 0 else p.hidden_dims[i - 1]
-        chan_dim_after_conv = hidden_dim
-
-        extractor_modules.append(
-            nn.Sequential(
-                p.conv_layer(
-                    chan_dim_before_conv,
-                    chan_dim_after_conv,
-                    kernel_size=p.kernel_size,
-                    stride=p.stride,
-                    padding=p.padding,
-                ),
-                p.normalization(chan_dim_after_conv),
-                p.activation(),
+        current_chan_dim = input_chan_dim
+        for hidden_dim in p.hidden_dims:
+            self.feature_extractor_layers.append(
+                nn.Sequential(
+                    p.conv_layer(
+                        current_chan_dim,
+                        hidden_dim,
+                        kernel_size=p.kernel_size,
+                        stride=p.stride,
+                        padding=p.padding,
+                    ),
+                    p.normalization(hidden_dim),
+                    p.activation(),
+                )
             )
-        )
+            current_chan_dim = hidden_dim
 
-    # After the above layers, the input may have spatial dimensions
-    # Before mapping to latent space, the feature values must be flattened
-    extractor_modules.append(nn.Flatten())
+        self.flatten = nn.Flatten()
 
-    return nn.Sequential(*extractor_modules)
+    def _build_sample_generator(self):
+        """Builds the convolutional sample generator layers."""
+        p = self.params
+        self.sample_generator_layers = nn.ModuleList()
 
+        # Unflatten layer
+        self.unflatten = nn.Unflatten(1, self.shapes_per_layer[-1])
 
-def _assemble_conv_sample_generator(sample_shape, params):
-    """Convolutional generator that reconstructs a sample from a feature vector.
+        # Upsampling layers
+        for i in range(len(p.hidden_dims) - 1):
+            chan_dim_before_conv, *spatial_dims_before_conv = self.shapes_per_layer[
+                -(i + 1)
+            ]
+            chan_dim_after_conv, *spatial_dims_after_conv = self.shapes_per_layer[
+                -(i + 2)
+            ]
 
-    The sample generator is the backbone of the decoder within a
-    variational auto-encoder. This variant first reshapes the input feature vector
-    to a tensor with (downsampled) spatial dimensions. Afterwards it passed
-    the tensor through multiple layers, each following the sequence:
-    transposed convolution, normalization, and activation.
+            in_channels = chan_dim_before_conv
+            if p.use_skip_connections:
+                in_channels *= 2
 
-    A final activation function is applied to map the values to a desired range.
-    """
-    p = params
-    generator_modules = []
+            output_padding = self._calculate_output_padding(
+                spatial_dims_before_conv,
+                spatial_dims_after_conv,
+                p.kernel_size,
+                p.stride,
+                p.padding,
+            )
 
-    # Calculate the shape of the input sample for each layer of the feature extractor
-    # This information is needed to properly upsample back to the same spatial resolution
-    shape_per_layer = _calculate_shape_per_layer(sample_shape, params)
+            self.sample_generator_layers.append(
+                nn.Sequential(
+                    p.conv_transpose_layer(
+                        in_channels,
+                        chan_dim_after_conv,
+                        kernel_size=p.kernel_size,
+                        stride=p.stride,
+                        padding=p.padding,
+                        output_padding=output_padding,
+                    ),
+                    p.normalization(chan_dim_after_conv),
+                    p.activation(),
+                )
+            )
 
-    # Reshape the input feature vector to add back spatial dimensions
-    generator_modules.append(nn.Unflatten(1, shape_per_layer[-1]))
+        # Final upsampling layer to match input sample shape
+        chan_dim_before_conv, *spatial_dims_before_conv = self.shapes_per_layer[1]
+        chan_dim_after_conv, *spatial_dims_after_conv = self.shapes_per_layer[0]
 
-    # Upsampling, normalization and activations
-    for i in range(len(p.hidden_dims) - 1):
-        chan_dim_before_conv, *spatial_dims_before_conv = shape_per_layer[-(i + 1)]
-        chan_dim_after_conv, *spatial_dims_after_conv = shape_per_layer[-(i + 2)]
+        in_channels = chan_dim_before_conv
+        if p.use_skip_connections:
+            in_channels *= 2
 
-        output_padding = _calculate_output_padding(
+        output_padding = self._calculate_output_padding(
             spatial_dims_before_conv,
             spatial_dims_after_conv,
             p.kernel_size,
@@ -127,129 +130,100 @@ def _assemble_conv_sample_generator(sample_shape, params):
             p.padding,
         )
 
-        generator_modules.append(
+        self.sample_generator_layers.append(
             nn.Sequential(
                 p.conv_transpose_layer(
-                    chan_dim_before_conv,
+                    in_channels,
                     chan_dim_after_conv,
                     kernel_size=p.kernel_size,
                     stride=p.stride,
                     padding=p.padding,
                     output_padding=output_padding,
                 ),
-                p.normalization(chan_dim_after_conv),
-                p.activation(),
             )
         )
 
-    # Last upsampling layer
-    chan_dim_before_conv, *spatial_dims_before_conv = shape_per_layer[1]
-    chan_dim_after_conv, *spatial_dims_after_conv = shape_per_layer[0]
-    output_padding = _calculate_output_padding(
-        spatial_dims_before_conv,
-        spatial_dims_after_conv,
-        p.kernel_size,
-        p.stride,
-        p.padding,
-    )
+        # Final output scaling
+        self.output_scaling_layer = p.output_scaling()
 
-    # Why are the chan dims the same here
-    generator_modules.append(
-        nn.Sequential(
-            p.conv_transpose_layer(
-                p.hidden_dims[0],
-                sample_shape[0],
-                kernel_size=p.kernel_size,
-                stride=p.stride,
-                padding=p.padding,
-                output_padding=output_padding,
-            ),
+    def extract_features(self, x: torch.Tensor) -> tuple[torch.Tensor, list | None]:
+        """Forward pass through the feature extractor."""
+        feature_maps = [] if self.params.use_skip_connections else None
+        for layer in self.feature_extractor_layers:
+            x = layer(x)
+            if self.params.use_skip_connections:
+                feature_maps.append(x)
+
+        x = self.flatten(x)
+        return x, feature_maps[::-1] if feature_maps else None
+
+    def generate_sample(
+        self, x: torch.Tensor, feature_maps: list | None
+    ) -> torch.Tensor:
+        """Forward pass through the sample generator."""
+        x = self.unflatten(x)
+
+        for i, layer in enumerate(self.sample_generator_layers):
+            if self.params.use_skip_connections and feature_maps is not None and i > 0:
+                skip_conn = feature_maps[i]
+                x = torch.cat([x, skip_conn], dim=1)
+            x = layer(x)
+
+        x = self.output_scaling_layer(x)
+        return x
+
+    def _calculate_shape_per_layer(self):
+        """Calculates and stores the spatial shapes from the encoding process."""
+        kernel_size = self.params.kernel_size
+        stride = self.params.stride
+        padding = self.params.padding
+        hidden_dims = self.params.hidden_dims
+        chan_dim, *spatial_dims = self.sample_shape
+        shapes_per_layer = [self.sample_shape]
+
+        for i in range(0, len(hidden_dims)):
+            chan_dim = hidden_dims[i]
+            spatial_dims = self._calculate_spatial_dims_after_conv_layer(
+                spatial_dims, kernel_size, stride, padding
+            )
+            shapes_per_layer.append((chan_dim, *spatial_dims))
+
+        return shapes_per_layer
+
+    def _calculate_spatial_dims_after_conv_layer(
+        self, spatial_dims, kernel_size, stride, padding
+    ):
+        """
+        Calculate new spatial dimensions after applying a convolutional layer.
+        """
+        return tuple(
+            (dim - kernel_size + 2 * padding) // stride + 1 for dim in spatial_dims
         )
-    )
 
-    # # TODO: Check the purpose of this refinement layer
-    # generator_modules.append(
-    #     nn.Sequential(
-    #         p.conv_layer(
-    #             p.hidden_dims[0],
-    #             sample_shape[0],
-    #             kernel_size=p.kernel_size,
-    #             stride=1,
-    #             padding=p.padding,
-    #         ),
-    #     )
-    # )
-
-    # Scale output (for example to be between 0 and 1 if inputs have been scaled in such a way as well)
-    generator_modules.append(p.output_scaling())
-
-    return nn.Sequential(*generator_modules)
-
-
-def _calculate_shape_per_layer(initial_shape: tuple, params: ConvParams):
-    """Calculates and stores the spatial shapes from the encoding process."""
-    kernel_size = params.kernel_size
-    stride = params.stride
-    padding = params.padding
-    hidden_dims = params.hidden_dims
-    chan_dim, *spatial_dims = initial_shape
-    shapes_per_layer = [initial_shape]
-
-    for i in range(0, len(hidden_dims)):
-        # Determine chan dim after convolution
-        chan_dim = hidden_dims[i]
-        # Determine spatial dims after convolution
-        spatial_dims = _calculate_spatial_dims_after_conv_layer(
-            spatial_dims, kernel_size, stride, padding
+    def _calculate_output_padding(
+        self, prev_dims, target_dims, kernel_size, stride, padding
+    ):
+        """
+        Calculate the output padding needed for transposed convolutional layers.
+        """
+        return tuple(
+            max(0, target - ((prev - 1) * stride - 2 * padding + kernel_size))
+            for prev, target in zip(prev_dims, target_dims)
         )
-        shapes_per_layer.append((chan_dim, *spatial_dims))
-
-    return shapes_per_layer
 
 
-def _calculate_spatial_dims_after_conv_layer(
-    spatial_dims, kernel_size, stride, padding
-):
-    """
-    Calculate new spatial dimensions after applying a convolutional layer.
+def _assemble_conv_backbone(
+    sample_shape: list,
+    params: ConvParams,
+) -> ConvBackbone:
+    """Assemble a convolutional feature extractor and sample generator that can form
+    the backbone of a variational auto-encoder.
 
     Args:
-        spatial_dims (tuple): Current spatial dimensions.
-        kernel_size (int): Kernel size of the convolutional layer.
-        stride (int): Stride of the convolutional layer.
-        padding (int): Padding of the convolutional layer.
+        sample_shape (list): Shape of the input samples (excluding batch dimension).
+        params (ConvParams): Parameters specific to the convolution-based networks.
 
     Returns:
-        tuple: New spatial dimensions.
+        ConvBackbone: An instance of the convolutional backbone module.
     """
-    return tuple(
-        (dim - kernel_size + 2 * padding) // stride + 1 for dim in spatial_dims
-    )
-
-
-def _calculate_output_padding(prev_dims, target_dims, kernel_size, stride, padding):
-    """
-    Calculate the output padding needed for transposed convolutional layers.
-
-    The upsampling layers should return tensors that have the same shapes as
-    during downsampling. To achieve this, the output_padding parameter of the
-    transposed convolution needs to be adjusted.
-
-    Args:
-        prev_dims (tuple): Previous spatial dimensions.
-        target_dims (tuple): Target spatial dimensions.
-        kernel_size (int): Kernel size of the transposed convolutional layer.
-        stride (int): Stride of the transposed convolutional layer.
-        padding (int): Padding of the transposed convolutional layer.
-
-    Returns:
-        tuple: Output padding needed.
-    """
-    # return tuple(
-    #     target - (prev * stride - 2 * padding + kernel_size)
-    #     for prev, target in zip(prev_dims, target_dims)
-    # )
-    return tuple(
-        max(0, target - ((prev - 1) * stride - 2 * padding + kernel_size))
-        for prev, target in zip(prev_dims, target_dims)
-    )
+    return ConvBackbone(sample_shape, params)

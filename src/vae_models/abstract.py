@@ -1,7 +1,8 @@
+from abc import ABC, abstractmethod
+
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-from abc import ABC, abstractmethod
 
 from src.vae_backbones import assemble_backbone
 
@@ -51,18 +52,16 @@ class AbstractVAE(pl.LightningModule, ABC):
         learning_rate: float,
     ):
         super().__init__()
-        self.save_hyperparameters()
+        self.save_hyperparameters(ignore=["recon_loss_function"])
 
-        # Assemble the backbone of the VAE (e.g. CNN, MLP, Transformer based
-        # feature extractor and sample generator)
-
-        extractor, generator = assemble_backbone(input_shape, backbone_params)
-        self.sample_to_feature_vec = extractor
-        self.feature_vec_to_sample = generator
+        # Assemble the backbone of the VAE
+        backbone = assemble_backbone(input_shape, backbone_params)
+        self.sample_to_feature_vec = backbone.extract_features
+        self.feature_vec_to_sample = backbone.generate_sample
 
         # Pass dummy input through encoder to get feature dimension
         dummy_input_sample = torch.randn((1,) + input_shape)
-        dummy_feature_vec = self.sample_to_feature_vec(dummy_input_sample)
+        dummy_feature_vec, _ = self.sample_to_feature_vec(dummy_input_sample)
         # Check that the feature vector has two dimensions only (batch_size, feature_dim)
         assert dummy_feature_vec.ndim == 2
         feature_dim = dummy_feature_vec.shape[1]
@@ -89,34 +88,38 @@ class AbstractVAE(pl.LightningModule, ABC):
         """Computes the loss (i.e. recon loss + KL divergence for a standard VAE)."""
         pass
 
-    def forward(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor, torch.Tensor):
+    def forward(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward pass through the VAE."""
-        z_mean, z_logvar = self.encoder(x)
+        z_mean, z_logvar, auxiliary_info = self.encoder(x)
         z = self.sample_latent_vec(z_mean, z_logvar)
-        recon_x = self.decoder(z)
+        recon_x = self.decoder(z, auxiliary_info)
         return recon_x, z_mean, z_logvar
 
-    def encoder(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor):
-        x = self.sample_to_feature_vec(x)
-        z_mean = self.feature_vec_to_z_mean(x)
-        z_logvar = self.feature_vec_to_z_logvar(x)
-        return z_mean, z_logvar
+    def encoder(
+        self, x: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, list | None]:
+        """Map input sample to latent space distribution parameters and auxiliary info."""
+        features, auxiliary_info = self.sample_to_feature_vec(x)
+        z_mean = self.feature_vec_to_z_mean(features)
+        z_logvar = self.feature_vec_to_z_logvar(features)
+        return z_mean, z_logvar, auxiliary_info
 
     def sample_latent_vec(
         self, z_mean: torch.Tensor, z_logvar: torch.Tensor
     ) -> torch.Tensor:
         """Sample from the latent space using the reparametrization trick."""
-        # Add Softplus?
         std = torch.exp(0.5 * z_logvar)
         eps = torch.randn_like(std)
         z = z_mean + eps * std
         return z
 
-    def decoder(self, z: torch.Tensor) -> torch.Tensor:
-        """Map latent space vector to a sample in input space"""
-        x = self.latent_vec_to_feature_vec(z)
-        x = self.feature_vec_to_sample(x)
-        return x
+    def decoder(self, z: torch.Tensor, auxiliary_info: list | None) -> torch.Tensor:
+        """Map latent space vector to a sample in input space using auxiliary info."""
+        features = self.latent_vec_to_feature_vec(z)
+        recon_x = self.feature_vec_to_sample(features, auxiliary_info)
+        return recon_x
 
     def training_step(self, batch: torch.Tensor, batch_idx: int) -> float:
         """Perform a single training step."""

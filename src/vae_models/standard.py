@@ -16,7 +16,7 @@ class StandardVAE(AbstractVAE):
         input_shape,
         latent_dim: int = 20,
         backbone_params=ConvParams(),
-        recon_loss_function=F.binary_cross_entropy,
+        recon_loss_function= F.mse_loss, # for non-binary input # F.binary_cross_entropy, (NOTE: BCE for binary input)
         learning_rate: float = 1e-3,
         kl_weight: float = 1.0,
     ):

@@ -1,13 +1,13 @@
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from abc import ABC, abstractmethod
 
 from src.vae_backbones import assemble_backbone
 
+# NOTE: originally 'abstract.py' and class 'AbstractVAE'
 
-class AbstractVAE(pl.LightningModule, ABC):
+class AbstractVAE_without_skip_connections(pl.LightningModule, ABC):
     """
     Abstract class that provides a starting point for different variations
     of the Variational Autoencoder (VAE).
@@ -63,31 +63,10 @@ class AbstractVAE(pl.LightningModule, ABC):
 
         # Pass dummy input through encoder to get feature dimension
         dummy_input_sample = torch.randn((1,) + input_shape)
-        # old
-        # dummy_feature_vec = self.sample_to_feature_vec(dummy_input_sample)
-        # for layer in self.sample_to_feature_vec:
-        #     dummy_feature_vec = layer(dummy_feature_vec)
-        # new
-        dummy_feature_vec = dummy_input_sample
-        feature_shapes = []  # Store shapes of intermediate feature maps
-
-        for layer in self.sample_to_feature_vec:
-            dummy_feature_vec = layer(dummy_feature_vec)
-            # Only record shapes for convolutional layers (skip Flatten)
-            if not isinstance(layer, nn.Flatten):
-                feature_shapes.append(dummy_feature_vec.shape[1:])  # Save feature map shapes
-        # Debugging:
-        # print(f"Feature shapes in encoder (abstract.py) (i.e., '[(32, 14, 14), ..., (128, 4, 4)]'): {feature_shapes}")
-
+        dummy_feature_vec = self.sample_to_feature_vec(dummy_input_sample)
         # Check that the feature vector has two dimensions only (batch_size, feature_dim)
         assert dummy_feature_vec.ndim == 2
-        # old:
-        # feature_dim = dummy_feature_vec.shape[1]
-        # new: Use the last feature map shape to calculate feature_dim
-        feature_dim = int(torch.prod(torch.tensor(feature_shapes[-1])))
-        # Debugging:
-        # print(f"Last feature map shape(e.g., '(128, 4, 4)'): {feature_shapes[-1]}")
-        # print(f"Feature dimension (flattened size; the product of its dimensions (e.g., 128 * 4 * 4 = 2048)): {feature_dim}")
+        feature_dim = dummy_feature_vec.shape[1]
 
         # Assemble linear layers that map feature vector to mean and (log) variance
         # of the latent space
@@ -112,22 +91,17 @@ class AbstractVAE(pl.LightningModule, ABC):
         pass
 
     def forward(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor, torch.Tensor):
-        """Forward pass with skip connections."""
-        z_mean, z_logvar, feature_maps = self.encoder(x)
+        """Forward pass through the VAE."""
+        z_mean, z_logvar = self.encoder(x)
         z = self.sample_latent_vec(z_mean, z_logvar)
-        recon_x = self.decoder(z, feature_maps)  # Pass feature maps to decoder
+        recon_x = self.decoder(z)
         return recon_x, z_mean, z_logvar
 
-    def encoder(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor, list):
-        """Encoder with skip connections."""
-        feature_maps = []  # Store intermediate feature maps for skip connections
-        for layer in self.sample_to_feature_vec:
-            x = layer(x)
-            feature_maps.append(x)  # Save feature map after each layer
-
+    def encoder(self, x: torch.Tensor) -> (torch.Tensor, torch.Tensor):
+        x = self.sample_to_feature_vec(x)
         z_mean = self.feature_vec_to_z_mean(x)
         z_logvar = self.feature_vec_to_z_logvar(x)
-        return z_mean, z_logvar, feature_maps
+        return z_mean, z_logvar
 
     def sample_latent_vec(
         self, z_mean: torch.Tensor, z_logvar: torch.Tensor
@@ -139,39 +113,10 @@ class AbstractVAE(pl.LightningModule, ABC):
         z = z_mean + eps * std
         return z
 
-    # Runs but then interpolation does not work because no feature maps are passed
-    # def decoder(self, z: torch.Tensor, feature_maps: list) -> torch.Tensor:
-    #     """Decoder with skip connections."""
-    #     x = self.latent_vec_to_feature_vec(z)
-
-    #     # Pass through the decoder layers, adding skip connections
-    #     for i, layer in enumerate(self.feature_vec_to_sample):
-    #         if i < len(feature_maps):  # Add skip connection if available
-    #             # print(f"Decoder tensor shape before skip connection at layer {i}: {x.shape}")
-    #             skip_connection = feature_maps[-(i + 1)]
-    #             # print(f"Skip connection shape at layer {i}: {feature_maps[-(i + 1)].shape}")
-    #             if skip_connection.shape[2:] != x.shape[2:]:  # Check spatial dimensions
-    #                 skip_connection = F.interpolate(skip_connection, size=x.shape[2:], mode="nearest")
-    #             x = x + skip_connection  # Add corresponding feature map
-    #         x = layer(x)
-    #         # print(f"Decoder tensor shape after layer {i}: {x.shape}")  # Debugging statement
-
-    #     return x
-
-    def decoder(self, z: torch.Tensor, feature_maps: list = None) -> torch.Tensor:
-        """Decoder with optional skip connections."""
-        # print(f"Decoder called with feature_maps: {feature_maps is not None}")
+    def decoder(self, z: torch.Tensor) -> torch.Tensor:
+        """Map latent space vector to a sample in input space"""
         x = self.latent_vec_to_feature_vec(z)
-
-        # Pass through the decoder layers
-        for i, layer in enumerate(self.feature_vec_to_sample):
-            if feature_maps is not None and i < len(feature_maps):  # Add skip connection if available
-                skip_connection = feature_maps[-(i + 1)]
-                if skip_connection.shape[2:] != x.shape[2:]:  # Check spatial dimensions
-                    skip_connection = F.interpolate(skip_connection, size=x.shape[2:], mode="nearest")
-                x = x + skip_connection  # Add corresponding feature map
-            x = layer(x)
-
+        x = self.feature_vec_to_sample(x)
         return x
 
     def training_step(self, batch: torch.Tensor, batch_idx: int) -> float:

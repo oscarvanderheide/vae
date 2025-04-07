@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib
 
-# matplotlib.use("Qt5Agg")
+matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
@@ -17,10 +17,9 @@ from datasets.brats import BraTSDataModule
 from src.vae_models import StandardVAE
 from src.vae_backbones import MLPParams, ConvParams
 
-# Assuming wandb has been initialized
-# import wandb
+# # Assuming wandb has been initialized
 # wandb.init(project="BraTS")
-# wandb_logger = WandbLogger(project="BraTS", log_model=None)
+# wandb_logger = WandbLogger(project="BraTS", log_model="all")
 
 # Set precision for CUDA tensor operations
 torch.set_float32_matmul_precision("medium")
@@ -62,9 +61,9 @@ backbone_params = ConvParams(activation=nn.ReLU)
 # backbone_params = MLPParams()
 
 # Set VAE options
-kl_weight = 0.0 # 0.0
-latent_dim = 20 # 64
-learning_rate = 1e-3 # 1e-4
+kl_weight = 0.0
+latent_dim = 64
+learning_rate = 1e-4
 recon_loss_function = F.mse_loss
 
 # Initialize the VAE model
@@ -80,33 +79,25 @@ model = StandardVAE(
 # Test whether the model runs on a single batch in forward mode
 x, _ = next(iter(train_loader))
 print("Shape of input batch", x.shape)
-# without skip connections:
-# z_mean, z_logvar = model.encoder(x)
-# with skip connections:
-z_mean, z_logvar, feature_maps = model.encoder(x)
+z_mean, z_logvar = model.encoder(x)
 print("Shape of mean value in latent space", z_mean.shape)
 z = model.sample_latent_vec(z_mean, z_logvar)
-# without skip connections:
-# x_recon = model.decoder(z)
-# with skip connections:
-x_recon = model.decoder(z, feature_maps)
+x_recon = model.decoder(z)
 print("Shape of reconstructed batch:", x_recon.shape)
 assert x_recon.shape == x.shape
 
 
 # %% Assemble trainer and train
 
-# v1:
-max_epochs = 150
-trainer = pl.Trainer(max_epochs=max_epochs) #, logger=wandb_logger)
-# trainer = pl.Trainer(
-#     max_epochs=max_epochs,
-#     # logger=wandb_logger,
-#     log_every_n_steps=1,
-#     # gradient_clip_val=0.50,
-#     enable_checkpointing=False,
-#     deterministic=True,
-# )
+max_epochs = 10
+trainer = pl.Trainer(
+    max_epochs=max_epochs,
+    logger=wandb_logger,
+    log_every_n_steps=1,
+    # gradient_clip_val=0.50,
+    enable_checkpointing=False,
+    deterministic=True,
+)
 trainer.fit(model, train_loader, val_loader)
 
 # %% Display some samples and reconstructions on a 4x4 grid
@@ -208,17 +199,17 @@ ax.axis("off")
 
 plt.show()
 
-# # %% Add rectangles to samples
+# %% Add rectangles to samples
 
-# # Take a digit and add a strange rectangle somewhere to see how it deals with such unseen data
-# x, _ = next(iter(val_loader))
+# Take a digit and add a strange rectangle somewhere to see how it deals with such unseen data
+x, _ = next(iter(val_loader))
 
-# # Modify the images
-# x[:, 0, 10:25, 10:15] = 1
+# Modify the images
+x[:, 0, 10:25, 10:15] = 1
 
-# x_recon, _, _ = model.forward(x)
+x_recon, _, _ = model.forward(x)
 
-# plot_samples_and_reconstructions(
-#     x, x_recon, title="Samples and Reconstructions with added rectangles"
-# )
- # %%
+plot_samples_and_reconstructions(
+    x, x_recon, title="Samples and Reconstructions with added rectangles"
+)
+# %%

@@ -4,7 +4,7 @@
 import numpy as np
 import matplotlib
 
-matplotlib.use("Qt5Agg")
+# matplotlib.use("Qt5Agg")
 import matplotlib.pyplot as plt
 import torch
 import pytorch_lightning as pl
@@ -12,7 +12,14 @@ from lightning.pytorch.loggers import WandbLogger
 import torch.nn.functional as F
 
 # Modules from this project
-from datasets.mnist import MNISTDataModule
+# v1: MNIST
+# from datasets.mnist import MNISTDataModule
+# v2: FashionMNIST
+# from datasets.fashionmnist import FashionMNISTDataModule
+# v3: BraTS
+# from datasets.brats import BraTSDataModule
+# v4: BraTS 2021
+from datasets.brats_2021 import BraTSDataModule
 
 # Import the different VAE models (e.g. StandardVAE)
 import src.vae_models as models
@@ -26,19 +33,27 @@ import src.vae_models as models
 import src.vae_backbones as backbones
 
 # Assuming wandb has been initialized
-wandb_logger = WandbLogger(project="MNIST", log_model="all")
+# wandb_logger = WandbLogger(project="MNIST", log_model="all")
 
 torch.set_float32_matmul_precision("medium")
 
 # %% Create datamodule and loaders for MNIST dataset
-mnist_datamodule = MNISTDataModule()
-mnist_datamodule.setup()
-train_loader = mnist_datamodule.train_dataloader()
-val_loader = mnist_datamodule.val_dataloader()
+# v1: MNIST
+# datamodule = MNISTDataModule()
+# v2: FashionMNIST
+# datamodule = FashionMNISTDataModule()
+# v3: BraTS
+# datamodule = BraTSDataModule("data/BraTS/raw", batch_size=64, num_workers=7)
+# v4: BraTS 2021
+datamodule = BraTSDataModule(data_dir="/home/aruckert/local_scratch/github/brats_2021_data/", batch_size=64, num_workers=7)
+
+datamodule.setup()
+train_loader = datamodule.train_dataloader()
+val_loader = datamodule.val_dataloader()
 # Determine shape of input images, needed to initalize the model
 
 x, _ = next(iter(train_loader))
-input_shape = tuple(x[0].shape)  # Should be (1,28,28)
+input_shape = tuple(x[0].shape)
 print(input_shape)
 
 # %% Load model
@@ -64,10 +79,10 @@ backbone_params = backbones.ConvParams()
 # backbone_params = backbones.MLPParams()
 
 # Set VAE options
-kl_weight = 2.0
+kl_weight = 0
 latent_dim = 20
 learning_rate = 1e-3
-recon_loss_function = F.binary_cross_entropy
+recon_loss_function = F.mse_loss # F.binary_cross_entropy
 
 # Initialize the VAE model
 model = models.StandardVAE(
@@ -81,24 +96,69 @@ model = models.StandardVAE(
 
 # Test whether the model runs on a single batch in forward mode
 x, y = next(iter(train_loader))
-print("Shape of input batch", x.shape)
-z_mean, z_logvar = model.encoder(x)
-print("Shape of mean value in latent space", z_mean.shape)
+# print("Shape of input batch", x.shape)
+# without skip connections:
+# z_mean, z_logvar = model.encoder(x)
+# with skip connections:
+z_mean, z_logvar, feature_maps = model.encoder(x)
+# print("Shape of mean value in latent space", z_mean.shape)
 z = model.sample_latent_vec(z_mean, z_logvar)
-x_recon = model.decoder(z)
-print("Shape of reconstructed batch:", x_recon.shape)
+# without skip connections:
+# x_recon = model.decoder(z)
+# with skip connections:
+x_recon = model.decoder(z, feature_maps)
+# print("Shape of reconstructed batch:", x_recon.shape)
 assert x_recon.shape == x.shape
 
 # %% Assemble trainer and train
 
-max_epochs = 10
-trainer = pl.Trainer(max_epochs=max_epochs, logger=wandb_logger)
+max_epochs = 150
+trainer = pl.Trainer(max_epochs=max_epochs) #, logger=wandb_logger)
 trainer.fit(model, train_loader, val_loader)
+
+
+def plot_samples_and_reconstructions_brats(x, x_recon, title="Samples and Reconstructions"):
+    """Plot original and reconstructed images in a grid."""
+
+    images = [x[i + j, 1].detach().cpu().numpy() for i in [0, 4, 8, 12] for j in [0, 1]]
+    images = np.reshape(images, (4, 2, 240, 240))
+
+    recons = [
+        x_recon[i + j, 0].detach().cpu().numpy() for i in [0, 4, 8, 12] for j in [0, 1]
+    ]
+    recons = np.reshape(recons, (4, 2, 240, 240))
+    fig, ax = plt.subplots(4, 4, figsize=(10, 10))
+    fig.suptitle(title, fontsize=16)
+
+    for i in range(4):
+        for j in range(2):
+            row = i
+            col_image = 2 * j
+            col_recon = 2 * j + 1
+            ax[row, col_image].imshow(images[i, j, :, :], cmap="gray")
+            ax[row, col_image].set_title("Original", fontsize=10)
+            ax[row, col_image].axis("off")
+            ax[row, col_recon].imshow(recons[i, j, :, :], cmap="gray")
+            ax[row, col_recon].set_title("Reconstructed", fontsize=10)
+            ax[row, col_recon].axis("off")
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to fit title
+    plt.show()
+
+model.eval()
+
+# Get a batch of input samples and pass through the model
+x, _ = next(iter(val_loader))
+x_recon, _, _ = model.forward(x)
+
+# BraTS:
+plot_samples_and_reconstructions_brats(x, x_recon)
+
 
 # %% Display some samples and reconstructions on a 4x4 grid
 
 
-def plot_samples_and_reconstructions(x, x_recon, title="Samples and Reconstructions"):
+def plot_samples_and_reconstructions(x, x_recon, title=f"Samples and Reconstructions (N_epochs = {max_epochs})"):
     """Plot original and reconstructed images in a grid."""
 
     images = [
@@ -133,13 +193,44 @@ def plot_samples_and_reconstructions(x, x_recon, title="Samples and Reconstructi
     plt.show()
 
 
+def plot_samples_and_reconstructions_brats(x, x_recon, title="Samples and Reconstructions"):
+    """Plot original and reconstructed images in a grid."""
+
+    images = [x[i + j, 1].detach().cpu().numpy() for i in [0, 4, 8, 12] for j in [0, 1]]
+    images = np.reshape(images, (4, 2, 240, 240))
+
+    recons = [
+        x_recon[i + j, 0].detach().cpu().numpy() for i in [0, 4, 8, 12] for j in [0, 1]
+    ]
+    recons = np.reshape(recons, (4, 2, 240, 240))
+    fig, ax = plt.subplots(4, 4, figsize=(10, 10))
+    fig.suptitle(title, fontsize=16)
+
+    for i in range(4):
+        for j in range(2):
+            row = i
+            col_image = 2 * j
+            col_recon = 2 * j + 1
+            ax[row, col_image].imshow(images[i, j, :, :], cmap="gray")
+            ax[row, col_image].set_title("Original", fontsize=10)
+            ax[row, col_image].axis("off")
+            ax[row, col_recon].imshow(recons[i, j, :, :], cmap="gray")
+            ax[row, col_recon].set_title("Reconstructed", fontsize=10)
+            ax[row, col_recon].axis("off")
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to fit title
+    plt.show()
+
 model.eval()
 
 # Get a batch of input samples and pass through the model
 x, _ = next(iter(val_loader))
 x_recon, _, _ = model.forward(x)
 
-plot_samples_and_reconstructions(x, x_recon)
+# (Fashion)MNIST:
+# plot_samples_and_reconstructions(x, x_recon)
+# BraTS:
+plot_samples_and_reconstructions_brats(x, x_recon)
 
 # %% Interpolate between four digits
 x, _ = next(iter(train_loader))
@@ -149,10 +240,10 @@ x3 = x[2].unsqueeze(0)
 x4 = x[3].unsqueeze(0)
 
 # Encode the samples
-z_mean1, z_logvar1 = model.encoder(x1)
-z_mean2, z_logvar2 = model.encoder(x2)
-z_mean3, z_logvar3 = model.encoder(x3)
-z_mean4, z_logvar4 = model.encoder(x4)
+z_mean1, z_logvar1, _ = model.encoder(x1)
+z_mean2, z_logvar2, _ = model.encoder(x2)
+z_mean3, z_logvar3, _ = model.encoder(x3)
+z_mean4, z_logvar4, _ = model.encoder(x4)
 
 # Sample latent vectors
 z1 = model.sample_latent_vec(z_mean1, z_logvar1)

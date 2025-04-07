@@ -17,10 +17,10 @@ from datasets.brats import BraTSDataModule
 from src.vae_models import StandardVAE
 from src.vae_backbones import MLPParams, ConvParams
 
-# Assuming wandb has been initialized
-# import wandb
-# wandb.init(project="BraTS")
-# wandb_logger = WandbLogger(project="BraTS", log_model=None)
+# # Assuming wandb has been initialized
+import wandb
+wandb.init(project="BraTS")
+wandb_logger = WandbLogger(project="BraTS", log_model=None)
 
 # Set precision for CUDA tensor operations
 torch.set_float32_matmul_precision("medium")
@@ -63,8 +63,8 @@ backbone_params = ConvParams(activation=nn.ReLU)
 
 # Set VAE options
 kl_weight = 0.0 # 0.0
-latent_dim = 20 # 64
-learning_rate = 1e-3 # 1e-4
+latent_dim = 64
+learning_rate = 1e-4 # 1e-4
 recon_loss_function = F.mse_loss
 
 # Initialize the VAE model
@@ -80,16 +80,10 @@ model = StandardVAE(
 # Test whether the model runs on a single batch in forward mode
 x, _ = next(iter(train_loader))
 print("Shape of input batch", x.shape)
-# without skip connections:
-# z_mean, z_logvar = model.encoder(x)
-# with skip connections:
-z_mean, z_logvar, feature_maps = model.encoder(x)
+z_mean, z_logvar = model.encoder(x)
 print("Shape of mean value in latent space", z_mean.shape)
 z = model.sample_latent_vec(z_mean, z_logvar)
-# without skip connections:
-# x_recon = model.decoder(z)
-# with skip connections:
-x_recon = model.decoder(z, feature_maps)
+x_recon = model.decoder(z)
 print("Shape of reconstructed batch:", x_recon.shape)
 assert x_recon.shape == x.shape
 
@@ -97,17 +91,54 @@ assert x_recon.shape == x.shape
 # %% Assemble trainer and train
 
 # v1:
-max_epochs = 150
-trainer = pl.Trainer(max_epochs=max_epochs) #, logger=wandb_logger)
-# trainer = pl.Trainer(
-#     max_epochs=max_epochs,
-#     # logger=wandb_logger,
-#     log_every_n_steps=1,
-#     # gradient_clip_val=0.50,
-#     enable_checkpointing=False,
-#     deterministic=True,
-# )
+max_epochs = 250
+trainer = pl.Trainer(
+    max_epochs=max_epochs,
+    logger=wandb_logger,
+    log_every_n_steps=1,
+    # gradient_clip_val=0.50,
+    enable_checkpointing=False,
+    deterministic=True,
+)
 trainer.fit(model, train_loader, val_loader)
+
+
+# v2: --> gives very unstable training loss --> bad results
+# max_epochs = 250
+# for epoch in range(max_epochs):
+#     model.train()
+#     train_loss = 0.0
+#     for batch_idx, batch in enumerate(train_loader):
+#         x, _ = batch
+#         loss = model.training_step(batch, batch_idx)
+#         train_loss += loss.item()
+    
+#     train_loss /= len(train_loader)
+    
+#     model.eval()
+#     val_loss = 0.0
+#     with torch.no_grad():
+#         for batch_idx, batch in enumerate(val_loader):
+#             x, _ = batch
+#             loss = model.validation_step(batch, batch_idx)
+#             val_loss += loss.item()
+    
+#     val_loss /= len(val_loader)
+    
+#     # Get the current learning rate from the optimizer
+#     optimizer = model.configure_optimizers()['optimizer']
+#     current_lr = optimizer.param_groups[0]['lr']
+    
+#     # Log metrics to wandb
+#     wandb.log({
+#         "train_loss": train_loss,
+#         "val_loss": val_loss,
+#         "epoch": epoch,
+#         "learning_rate": current_lr
+#     })
+    
+#     print(f"Epoch {epoch}: Train Loss = {train_loss}, Val Loss = {val_loss}, Learning Rate = {current_lr}")
+
 
 # %% Display some samples and reconstructions on a 4x4 grid
 

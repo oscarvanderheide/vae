@@ -16,9 +16,17 @@ class MLPParams:
 
 
 class MLPBackbone(nn.Module):
-    """MLP backbone for VAE, handling feature extraction and sample generation."""
-
     def __init__(self, sample_shape: list, params: MLPParams):
+        """Assemble a MLP-based feature extractor and sample generator that can form
+        the backbone of a variational auto-encoder.
+
+        Args:
+            sample_shape (list): Shape of the input samples (excluding batch dimension).
+            params (MLPParams): Parameters specific to the MLP-based networks.
+
+        Returns:
+            MLPBackbone: An instance of the MLP backbone module.
+        """
         super().__init__()
         self.params = params
         self.sample_shape = sample_shape
@@ -74,21 +82,3 @@ class MLPBackbone(nn.Module):
         """Forward pass through the sample generator. Ignores auxiliary_info."""
         # auxiliary_info is ignored in the MLP case
         return self.sample_generator(x)
-
-
-def _assemble_mlp_backbone(
-    sample_shape: list,
-    params: MLPParams,
-) -> MLPBackbone:
-    """Assemble a MLP-based feature extractor and sample generator that can form
-    the backbone of a variational auto-encoder.
-
-    Args:
-        sample_shape (list): Shape of the input samples (excluding batch dimension).
-        params (MLPParams): Parameters specific to the MLP-based networks.
-
-    Returns:
-        MLPBackbone: An instance of the MLP backbone module.
-    """
-    # Instantiate and return the MLPBackbone class
-    return MLPBackbone(sample_shape, params)

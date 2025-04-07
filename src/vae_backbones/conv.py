@@ -35,9 +35,17 @@ class ConvParams:
 
 
 class ConvBackbone(nn.Module):
-    """Convolutional backbone for VAE, handling feature extraction and sample generation."""
-
     def __init__(self, sample_shape: list, params: ConvParams):
+        """Assemble a convolutional feature extractor and sample generator that can form
+        the backbone of a variational auto-encoder.
+
+        Args:
+            sample_shape (list): Shape of the input samples (excluding batch dimension).
+            params (ConvParams): Parameters specific to the convolution-based networks.
+
+        Returns:
+            ConvBackbone: An instance of the convolutional backbone module.
+        """
         super().__init__()
         self.params = params
         self.sample_shape = sample_shape

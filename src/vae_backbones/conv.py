@@ -1,11 +1,24 @@
-import torch.nn as nn
 from dataclasses import dataclass
+
+import torch.nn as nn
 
 
 @dataclass
-class ConvParams:
-    """Holds parameters needed to instantiate convolutional feature extractor
-    and sample generator modules that can form the backbone of a VAE."""
+class ConvParams_without_skip_connections:
+    """Holds parameters needed to instantiate a convolutional feature extractor
+    and sample generator modules that can form the backbone of a VAE.
+
+    Attributes:
+    - hidden_dims: List of integers representing the number of channels in each convolutional layer.
+    - conv_layer: Convolutional layer class (default: nn.Conv2d).
+    - conv_transpose_layer: Transposed convolutional layer class (default: nn.ConvTranspose2d).
+    - normalization: Normalization layer class (default: nn.BatchNorm2d).
+    - activation: Activation function class (default: nn.ReLU).
+    - output_scaling: Output scaling layer class (default: nn.Sigmoid).
+    - kernel_size: Size of the convolutional kernel (default: 3).
+    - stride: Stride of the convolutional layer (default: 2).
+    - padding: Padding added to the input (default: 1).
+    """
 
     hidden_dims: list = (32, 64, 128)
     conv_layer: nn.Module = nn.Conv2d
@@ -20,14 +33,14 @@ class ConvParams:
 
 def _assemble_conv_backbone(
     sample_shape: list,
-    params: ConvParams,
+    params: ConvParams_without_skip_connections,
 ):
     """Assemble a convolutional feature extractor and sample generator that can form
     the backbone of a variational auto-encoder.
 
     Args:
         sample_shape (list): Shape of the input samples (excluding batch dimension).
-        params (ConvParams): Parameters specific to the convolution-based networks.
+        params (ConvParams_without_skip_connections): Parameters specific to the convolution-based networks.
     """
     feature_extractor = _assemble_conv_feature_extractor(sample_shape, params)
     sample_generator = _assemble_conv_sample_generator(sample_shape, params)

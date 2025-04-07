@@ -16,7 +16,7 @@ class StandardVAE(AbstractVAE):
         input_shape,
         latent_dim: int = 20,
         backbone_params=ConvParams(),
-        recon_loss_function=F.binary_cross_entropy,
+        recon_loss_function= F.mse_loss, # for non-binary input # F.binary_cross_entropy, (NOTE: BCE for binary input)
         learning_rate: float = 1e-3,
         kl_weight: float = 1.0,
     ):
@@ -38,7 +38,7 @@ class StandardVAE(AbstractVAE):
         """
         # This loss functions default to mean reduction I think but for clarity I specify it anyways
         # recon_loss = F.binary_cross_entropy(x_recon, x, reduction="mean")
-        recon_loss = self.recon_loss_function(x_recon, x, reduction="sum")
+        recon_loss = self.recon_loss_function(x_recon, x, reduction="mean")
         # Since the recon loss is calculated using mean, we should probably do the same
         # for the KL divergence loss to prevent them from becoming highly imbalanced.
         kl_div = -0.5 * torch.mean(1 + z_logvar - z_mean.pow(2) - z_logvar.exp())

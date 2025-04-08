@@ -14,6 +14,9 @@ Available Datasets:
   challenging drop-in replacement for MNIST, containing 28x28 grayscale images of
   fashion items from 10 categories.
 
+All dataset modules inherit from AbstractDataModule, which provides common
+functionality for creating dataloaders and enforces a consistent interface.
+
 Usage:
 -----
 Each DataModule follows the PyTorch Lightning pattern and can be used as follows:
@@ -46,10 +49,12 @@ All DataModules provide:
 See individual class docstrings for detailed documentation on each dataset implementation.
 """
 
+from .abstract_datamodule import AbstractDataModule
 from .fashionmnist import FashionMNISTDataModule
 from .mnist import MNISTDataModule
 
 __all__ = [
+    "AbstractDataModule",
     "MNISTDataModule",
     "FashionMNISTDataModule",
 ]

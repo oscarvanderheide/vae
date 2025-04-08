@@ -9,8 +9,24 @@ from .abstract_backbone import AbstractBackbone
 
 @dataclass
 class MLPParams:
-    """Holds parameters needed to instantiate MLP-based feature extractor
-    and sample generator modules that can form the backbone of a VAE."""
+    """Configuration parameters for building a Multi-Layer Perceptron (MLP) backbone.
+
+    This dataclass holds parameters for defining a simple MLP architecture suitable
+    for VAEs, particularly when dealing with non-spatial or flattened input data.
+    It defines the hidden layer dimensions and activation functions.
+
+    Attributes:
+        hidden_dims (tuple): A tuple of integers specifying the number of neurons
+            in each hidden layer of the MLP, for both the extractor and generator.
+            The sequence defines the extractor's layer sizes; the generator uses
+            the reverse sequence. Default: (512, 256, 128, 64).
+        activation (nn.Module): The PyTorch activation function class instance to use
+            between hidden layers (e.g., `nn.ReLU()`, `nn.SiLU()`). Default: `nn.SiLU()`.
+        final_activation (nn.Module): The activation function applied to the final output
+            of the sample generator (decoder) to scale the reconstructed sample to the
+            desired range (e.g., `nn.Sigmoid()` for [0, 1], `nn.Tanh()` for [-1, 1],
+            or `nn.Identity()` for no scaling). Default: `nn.Sigmoid()`.
+    """
 
     hidden_dims: tuple = (512, 256, 128, 64)
     activation: nn.Module = nn.SiLU()
@@ -18,71 +34,118 @@ class MLPParams:
 
 
 class MLPBackbone(AbstractBackbone):
-    def __init__(self, sample_shape: list, params: MLPParams):
-        """Assemble a MLP-based feature extractor and sample generator that can form
-        the backbone of a variational auto-encoder.
+    def __init__(self, sample_shape: tuple, params: MLPParams):
+        """Initializes and builds the MLP Backbone.
+
+        Constructs the feature extractor (encoder) and sample generator (decoder)
+        networks based on a simple MLP architecture. Input samples are flattened
+        before being processed by the extractor.
 
         Args:
-            sample_shape (list): Shape of the input samples (excluding batch dimension).
-            params (MLPParams): Parameters specific to the MLP-based networks.
-
-        Returns:
-            MLPBackbone: An instance of the MLP backbone module.
+            sample_shape (tuple): The shape of a single input sample, excluding the batch
+                dimension (e.g., (C, H, W) or (Features,)). Used to calculate the
+                flattened input size.
+            params (MLPParams): An instance of `MLPParams` containing the configuration
+                for the hidden layers and activations.
         """
         super().__init__()
         self.params = params
         self.sample_shape = sample_shape
+        # Calculate the total number of elements in a single sample after flattening.
         self.numel_sample = math.prod(sample_shape)
-        self._build_feature_extractor()
-        self._build_sample_generator()
+
+        # Build the network components
+        self._build_feature_extractor()  # Encoder part
+        self._build_sample_generator()  # Decoder part
 
     def _build_feature_extractor(self):
-        """Builds the MLP feature extractor layers."""
+        """Builds the MLP feature extractor (encoder) network."""
         p = self.params
         extractor_modules = []
 
-        # Build the MLP network:
-        # Flatten the input, then apply a series of linear layers with activations
-        for i, hidden_dim in enumerate(p.hidden_dims):
-            if i == 0:
-                extractor_modules.append(nn.Flatten())
-                extractor_modules.append(nn.Linear(self.numel_sample, hidden_dim))
-            else:
-                extractor_modules.append(p.activation)
-                extractor_modules.append(nn.Linear(p.hidden_dims[i - 1], hidden_dim))
+        # Start with flattening the input sample (e.g., image) into a 1D vector
+        extractor_modules.append(nn.Flatten())
 
+        # Determine the size of the first layer's input (flattened sample size)
+        in_features = self.numel_sample
+
+        # Sequentially add Linear layers and Activation functions
+        for i, hidden_dim in enumerate(p.hidden_dims):
+            # Add activation function *before* the linear layer (except for the very first layer)
+            if i > 0:
+                extractor_modules.append(p.activation)
+
+            # Add the linear layer
+            extractor_modules.append(nn.Linear(in_features, hidden_dim))
+
+            # Update in_features for the next layer
+            in_features = hidden_dim
+
+        # Combine all layers into a sequential module
         self.feature_extractor = nn.Sequential(*extractor_modules)
 
     def _build_sample_generator(self):
-        """Builds the MLP sample generator layers."""
+        """Builds the MLP sample generator (decoder) network."""
         p = self.params
         generator_modules = []
 
-        # Build the MLP network:
-        # Apply a series of linear layers with activations, then unflatten
-        for i in range(len(p.hidden_dims)):
-            if i < (len(p.hidden_dims) - 1):
-                generator_modules.append(
-                    nn.Linear(p.hidden_dims[-(i + 1)], p.hidden_dims[-(i + 2)])
-                )
-                generator_modules.append(p.activation)
-            else:
-                # Final layer maps to the flattened sample size
-                generator_modules.append(nn.Linear(p.hidden_dims[0], self.numel_sample))
-                generator_modules.append(p.final_activation)
-                generator_modules.append(nn.Unflatten(1, self.sample_shape))
+        # Input features for the generator start from the last hidden dim of the extractor
+        in_features = p.hidden_dims[-1]
 
+        # Sequentially add Linear layers and Activation functions in reverse order of hidden_dims
+        for i in range(len(p.hidden_dims) - 1):
+            # Add activation function before the linear layer
+            generator_modules.append(p.activation)
+
+            # Output features for this layer are the previous hidden dim size
+            out_features = p.hidden_dims[-(i + 2)]
+            generator_modules.append(nn.Linear(in_features, out_features))
+
+            # Update in_features for the next layer
+            in_features = out_features
+
+        # --- Final Layer ---
+        # Add activation before the final linear layer
+        generator_modules.append(p.activation)
+        # Final linear layer maps back to the flattened original sample size
+        generator_modules.append(nn.Linear(in_features, self.numel_sample))
+        # Apply the final scaling activation (e.g., Sigmoid)
+        generator_modules.append(p.final_activation)
+        # Unflatten the output vector back to the original sample shape
+        generator_modules.append(
+            nn.Unflatten(dim=1, unflattened_size=self.sample_shape)
+        )
+
+        # Combine all layers into a sequential module
         self.sample_generator = nn.Sequential(*generator_modules)
 
     def extract_features(self, x: torch.Tensor) -> tuple[torch.Tensor, None]:
-        """Forward pass through the feature extractor. Returns features and None for auxiliary info."""
+        """Performs the forward pass through the MLP feature extractor (encoder).
+
+        Args:
+            x (torch.Tensor): Input tensor (batch of samples).
+
+        Returns:
+            tuple[torch.Tensor, None]:
+                - features (torch.Tensor): Flattened feature tensor (batch_size, feature_dim).
+                - None: MLP backbone does not produce auxiliary info for skip connections.
+        """
         features = self.feature_extractor(x)
-        # Return None for auxiliary_info to match the expected signature
+        # MLP doesn't use skip connections, so auxiliary_info is None
         return features, None
 
     def generate_sample(
         self, features: torch.Tensor, auxiliary_info: list | None
     ) -> torch.Tensor:
-        """Forward pass through the sample generator. Ignores auxiliary_info."""
-        # auxiliary_info is ignored in the MLP case
+        """Performs the forward pass through the MLP sample generator (decoder).
+
+        Args:
+            features (torch.Tensor): Input feature tensor (batch_size, feature_dim).
+            auxiliary_info (list | None): Ignored in the MLP backbone. Kept for
+              interface consistency with AbstractBackbone.
+
+        Returns:
+            torch.Tensor: Reconstructed sample tensor.
+        """
+        # auxiliary_info is ignored as MLP doesn't use skip connections.
         return self.sample_generator(features)

@@ -54,14 +54,13 @@ class AbstractVAE(pl.LightningModule, ABC):
         super().__init__()
         self.save_hyperparameters(ignore=["recon_loss_function"])
 
-        # Assemble the backbone of the VAE
-        backbone = assemble_backbone(input_shape, backbone_params)
-        self.sample_to_feature_vec = backbone.extract_features
-        self.feature_vec_to_sample = backbone.generate_sample
+        # Assemble the backbone of the VAE containing the feature extractor and
+        # sample generator
+        self.backbone = assemble_backbone(input_shape, backbone_params)
 
         # Pass dummy input through encoder to get feature dimension
         dummy_input_sample = torch.randn((1,) + input_shape)
-        dummy_feature_vec, _ = self.sample_to_feature_vec(dummy_input_sample)
+        dummy_feature_vec, _ = self.backbone.extract_features(dummy_input_sample)
         # Check that the feature vector has two dimensions only (batch_size, feature_dim)
         assert dummy_feature_vec.ndim == 2
         feature_dim = dummy_feature_vec.shape[1]
@@ -101,7 +100,7 @@ class AbstractVAE(pl.LightningModule, ABC):
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, list | None]:
         """Map input sample to latent space distribution parameters and auxiliary info."""
-        features, auxiliary_info = self.sample_to_feature_vec(x)
+        features, auxiliary_info = self.backbone.extract_features(x)
         z_mean = self.feature_vec_to_z_mean(features)
         z_logvar = self.feature_vec_to_z_logvar(features)
         return z_mean, z_logvar, auxiliary_info
@@ -118,7 +117,7 @@ class AbstractVAE(pl.LightningModule, ABC):
     def decoder(self, z: torch.Tensor, auxiliary_info: list | None) -> torch.Tensor:
         """Map latent space vector to a sample in input space using auxiliary info."""
         features = self.latent_vec_to_feature_vec(z)
-        recon_x = self.feature_vec_to_sample(features, auxiliary_info)
+        recon_x = self.backbone.generate_sample(features, auxiliary_info)
         return recon_x
 
     def training_step(self, batch: torch.Tensor, batch_idx: int) -> float:

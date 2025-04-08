@@ -55,13 +55,13 @@ class ConvBackbone(nn.Module):
 
     def _build_feature_extractor(self):
         """Builds the convolutional feature extractor layers."""
-        input_chan_dim = self.sample_shape[0]
+        chan_dim_before_conv = self.sample_shape[0]
         p = self.params
         self.feature_extractor_layers = nn.ModuleList()
 
-        chan_dim_before_conv = input_chan_dim
-        for hidden_dim in p.hidden_dims:
-            chan_dim_after_conv = hidden_dim
+        for i in range(len(p.hidden_dims)):
+            chan_dim_after_conv = p.hidden_dims[i]
+
             self.feature_extractor_layers.append(
                 nn.Sequential(
                     p.conv_layer(
@@ -89,16 +89,15 @@ class ConvBackbone(nn.Module):
 
         # Upsampling layers
         for i in range(len(p.hidden_dims) - 1):
-            chan_dim_before_conv, *spatial_dims_before_conv = self.shapes_per_layer[
-                -(i + 1)
-            ]
-            chan_dim_after_conv, *spatial_dims_after_conv = self.shapes_per_layer[
-                -(i + 2)
-            ]
+            chan_dim_after_conv = self.shapes_per_layer[-(i + 2)][0]
+            chan_dim_before_conv = self.shapes_per_layer[-(i + 1)][0]
 
-            in_channels = chan_dim_before_conv
-            if p.use_skip_connections:
-                in_channels *= 2
+            if p.use_skip_connections and i > 0:
+                skip_channels = self.shapes_per_layer[-(i + 1)][0]
+                chan_dim_before_conv += skip_channels
+
+            _, *spatial_dims_before_conv = self.shapes_per_layer[-(i + 1)]
+            _, *spatial_dims_after_conv = self.shapes_per_layer[-(i + 2)]
 
             output_padding = self._calculate_output_padding(
                 spatial_dims_before_conv,
@@ -111,7 +110,7 @@ class ConvBackbone(nn.Module):
             self.sample_generator_layers.append(
                 nn.Sequential(
                     p.conv_transpose_layer(
-                        in_channels,
+                        chan_dim_before_conv,
                         chan_dim_after_conv,
                         kernel_size=p.kernel_size,
                         stride=p.stride,
@@ -127,9 +126,8 @@ class ConvBackbone(nn.Module):
         chan_dim_before_conv, *spatial_dims_before_conv = self.shapes_per_layer[1]
         chan_dim_after_conv, *spatial_dims_after_conv = self.shapes_per_layer[0]
 
-        in_channels = chan_dim_before_conv
         if p.use_skip_connections:
-            in_channels *= 2
+            chan_dim_before_conv *= 2
 
         output_padding = self._calculate_output_padding(
             spatial_dims_before_conv,
@@ -142,7 +140,7 @@ class ConvBackbone(nn.Module):
         self.sample_generator_layers.append(
             nn.Sequential(
                 p.conv_transpose_layer(
-                    in_channels,
+                    chan_dim_before_conv,
                     chan_dim_after_conv,
                     kernel_size=p.kernel_size,
                     stride=p.stride,

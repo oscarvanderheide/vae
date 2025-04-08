@@ -59,22 +59,23 @@ class ConvBackbone(nn.Module):
         p = self.params
         self.feature_extractor_layers = nn.ModuleList()
 
-        current_chan_dim = input_chan_dim
+        chan_dim_before_conv = input_chan_dim
         for hidden_dim in p.hidden_dims:
+            chan_dim_after_conv = hidden_dim
             self.feature_extractor_layers.append(
                 nn.Sequential(
                     p.conv_layer(
-                        current_chan_dim,
-                        hidden_dim,
+                        chan_dim_before_conv,
+                        chan_dim_after_conv,
                         kernel_size=p.kernel_size,
                         stride=p.stride,
                         padding=p.padding,
                     ),
-                    p.normalization(hidden_dim),
+                    p.normalization(chan_dim_after_conv),
                     p.activation(),
                 )
             )
-            current_chan_dim = hidden_dim
+            chan_dim_before_conv = chan_dim_after_conv
 
         self.flatten = nn.Flatten()
 

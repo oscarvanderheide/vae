@@ -219,20 +219,3 @@ class ConvBackbone(nn.Module):
             max(0, target - ((prev - 1) * stride - 2 * padding + kernel_size))
             for prev, target in zip(prev_dims, target_dims)
         )
-
-
-def _assemble_conv_backbone(
-    sample_shape: list,
-    params: ConvParams,
-) -> ConvBackbone:
-    """Assemble a convolutional feature extractor and sample generator that can form
-    the backbone of a variational auto-encoder.
-
-    Args:
-        sample_shape (list): Shape of the input samples (excluding batch dimension).
-        params (ConvParams): Parameters specific to the convolution-based networks.
-
-    Returns:
-        ConvBackbone: An instance of the convolutional backbone module.
-    """
-    return ConvBackbone(sample_shape, params)

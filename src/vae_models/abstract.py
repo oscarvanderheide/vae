@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from src.vae_backbones import assemble_backbone
+from src.vae_backbones.abstract_backbone import AbstractBackbone
 
 
 class AbstractVAE(pl.LightningModule, ABC):
@@ -56,7 +57,9 @@ class AbstractVAE(pl.LightningModule, ABC):
 
         # Assemble the backbone of the VAE containing the feature extractor and
         # sample generator
-        self.backbone = assemble_backbone(input_shape, backbone_params)
+        self.backbone: AbstractBackbone = assemble_backbone(
+            input_shape, backbone_params
+        )
 
         # Pass dummy input through encoder to get feature dimension
         dummy_input_sample = torch.randn((1,) + input_shape)

@@ -3,6 +3,8 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
+from .abstract_backbone import AbstractBackbone
+
 
 @dataclass
 class ConvParams:
@@ -34,7 +36,7 @@ class ConvParams:
     use_skip_connections: bool = True
 
 
-class ConvBackbone(nn.Module):
+class ConvBackbone(AbstractBackbone):
     def __init__(self, sample_shape: list, params: ConvParams):
         """Assemble a convolutional feature extractor and sample generator that can form
         the backbone of a variational auto-encoder.
@@ -165,10 +167,10 @@ class ConvBackbone(nn.Module):
         return x, feature_maps[::-1] if feature_maps else None
 
     def generate_sample(
-        self, x: torch.Tensor, feature_maps: list | None
+        self, features: torch.Tensor, feature_maps: list | None
     ) -> torch.Tensor:
         """Forward pass through the sample generator."""
-        x = self.unflatten(x)
+        x = self.unflatten(features)
 
         for i, layer in enumerate(self.sample_generator_layers):
             if self.params.use_skip_connections and feature_maps is not None and i > 0:

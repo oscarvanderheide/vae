@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
+from .abstract_backbone import AbstractBackbone
+
 
 @dataclass
 class MLPParams:
@@ -15,7 +17,7 @@ class MLPParams:
     final_activation: nn.Module = nn.Sigmoid()
 
 
-class MLPBackbone(nn.Module):
+class MLPBackbone(AbstractBackbone):
     def __init__(self, sample_shape: list, params: MLPParams):
         """Assemble a MLP-based feature extractor and sample generator that can form
         the backbone of a variational auto-encoder.
@@ -78,7 +80,9 @@ class MLPBackbone(nn.Module):
         # Return None for auxiliary_info to match the expected signature
         return features, None
 
-    def generate_sample(self, x: torch.Tensor, auxiliary_info: None) -> torch.Tensor:
+    def generate_sample(
+        self, features: torch.Tensor, auxiliary_info: list | None
+    ) -> torch.Tensor:
         """Forward pass through the sample generator. Ignores auxiliary_info."""
         # auxiliary_info is ignored in the MLP case
-        return self.sample_generator(x)
+        return self.sample_generator(features)

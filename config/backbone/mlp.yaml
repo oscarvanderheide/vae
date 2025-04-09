@@ -1,0 +1,10 @@
+# --- Backbone Information ---
+name: mlp
+
+# --- Backbone Arguments ---
+args:
+  _target_: src.vae_backbones.MLPParams
+  hidden_dims: [512, 256, 128]
+  activation: torch.nn.ReLU
+  final_activation: torch.nn.Sigmoid
+

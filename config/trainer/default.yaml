@@ -1,0 +1,15 @@
+# --- Trainer Information ---
+name: default_trainer
+
+# --- Trainer Arguments ---
+args:
+  _target_: pytorch_lightning.Trainer
+  max_epochs: 3
+  accelerator: auto
+  devices: auto
+  log_every_n_steps: 20
+  gradient_clip_val: 0.5
+  default_root_dir: ${hydra:runtime.output_dir} # Output directory for logs and checkpoints
+  # logger: true # Or configure a specific logger like WandbLogger/TensorBoardLogger
+  # callbacks: [] # Configure callbacks (ModelCheckpoint, EarlyStopping, etc.)
+  # precision: 16 # For mixed precision

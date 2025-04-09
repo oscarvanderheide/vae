@@ -1,0 +1,12 @@
+# --- Model Information ---
+name: standard_vae
+
+# --- Model Arguments ---
+args:
+  _target_: src.vae_models.StandardVAE
+  input_shape: ${dataset.input_shape} # Interpolates from the selected dataset config
+  latent_dim: 32
+  backbone_params: ${backbone.args}
+  recon_loss_function: ${loss_func:mse} # Uses the new resolver
+  learning_rate: 1e-3
+  kl_weight: 1.0

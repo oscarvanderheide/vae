@@ -1,0 +1,11 @@
+# --- Dataset Information ---
+name: fashion_mnist
+input_shape: ${as_tuple:1, 28, 28}
+num_labels: 10
+
+# --- Dataset Arguments ---
+args:
+  _target_: datasets.mnist.MNISTDataModule
+  batch_size: 128
+  split_val: 0.8
+  num_workers: 7

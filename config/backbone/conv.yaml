@@ -1,0 +1,34 @@
+# --- Backbone Information ---
+name: conv
+
+# --- Backbone Arguments ---
+args:
+  _target_: src.vae_backbones.ConvParams
+  hidden_dims: [32, 64, 128, 256]
+  kernel_size: 3
+  stride: 2
+  padding: 1
+  use_skip_connections: true
+  activation: 
+    _target_: torch.nn.ReLU
+    _partial_: true
+  output_scaling: 
+    _target_: torch.nn.Sigmoid
+    _partial_: true
+  conv_layer: 
+    _target_: torch.nn.Conv2d
+    _partial_: true
+  conv_transpose_layer: 
+    _target_: torch.nn.ConvTranspose2d
+    _partial_: true
+  normalization: 
+    _target_: torch.nn.BatchNorm2d
+    _partial_: true
+
+# Note that the ConvParams dataclass has attributes that should be 
+# nn.Module classes, not *instances* of those classes. By default, 
+# _target_ will try to create an instance and that won't work because some
+# of the arguments are not yet known (depend on dataset, etc).
+# By using _partial_: true, we can create a partial class. This means that
+# the class is not instantiated yet, but we can pass arguments to it.
+

@@ -4,6 +4,7 @@ __pycache__/
 *.png
 wandb/
 data/
+outputs/
 MNIST/
 lightning_logs/
 tmp/

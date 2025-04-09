@@ -49,8 +49,11 @@ class AbstractVAE(pl.LightningModule, ABC):
         backbone_params: Parameters specific to the backbone networks. These define
             the architecture used for feature extraction and sample generation.
         recon_loss_function: Function that computes the reconstruction loss between
-            the original input and the reconstructed output. Common choices include
-            MSE for continuous data or BCE for binary data.
+            the original input and the reconstructed output (see `config_utils.py` for
+            available loss functions). The function should take two arguments:
+            - recon_x: The reconstructed output from the decoder
+            - x: The original input sample
+            Common choices include MSE for continuous data or BCE for binary data.
         learning_rate (float): Learning rate for the optimizer. Controls the step size
             for parameter updates during training.
     """

@@ -36,8 +36,9 @@ class StandardVAE(AbstractVAE):
             and compression level of the model. Default: 20
         backbone_params (ConvParams, optional): Parameters for the backbone architecture.
             Default: ConvParams() (uses default CNN architecture)
-        recon_loss_function (function, optional): Function to compute reconstruction loss.
+        recon_loss_function: Function to compute reconstruction loss.
             Default: F.mse_loss (Mean Squared Error loss suitable for continuous data)
+            Can be provided directly via Hydra resolver (e.g. ${loss_func:mse})
         learning_rate (float, optional): Learning rate for the optimizer. Default: 1e-3
         kl_weight (float, optional): Weight applied to the KL divergence term in the loss
             function. Higher values enforce more regularization on the latent space.
@@ -49,7 +50,7 @@ class StandardVAE(AbstractVAE):
         input_shape,
         latent_dim: int = 20,
         backbone_params=ConvParams(),
-        recon_loss_function=F.mse_loss,  # for non-binary input (use F.binary_cross_entropy for binary input)
+        recon_loss_function=F.mse_loss,
         learning_rate: float = 1e-3,
         kl_weight: float = 1.0,
     ):

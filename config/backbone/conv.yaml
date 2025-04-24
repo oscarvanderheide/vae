@@ -8,6 +8,7 @@ args:
   kernel_size: 3
   stride: 2
   padding: 1
+  use_skip_connections: false
   use_residual_blocks: false
   activation: 
     _target_: torch.nn.ReLU

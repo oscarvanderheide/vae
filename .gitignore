@@ -8,3 +8,4 @@ outputs/
 MNIST/
 lightning_logs/
 tmp/
+multirun/

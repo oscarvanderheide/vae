@@ -10,12 +10,13 @@ from src.config_utils import set_custom_resolvers
 from src.visualization import plot_reconstructions
 
 
+# Set custom resolvers for parsing config files (functions, tuples, etc.)
+set_custom_resolvers()
+
+
 @hydra.main(config_path="config", config_name="config", version_base=None)
 def main(cfg):
     """Main function for training and evaluating VAE models using Hydra."""
-
-    # Set custom resolvers for parsing config files (functions, tuples, etc.)
-    set_custom_resolvers()
 
     # For reproducibility
     pl.seed_everything(cfg.seed, workers=True)

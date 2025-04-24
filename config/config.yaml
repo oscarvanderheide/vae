@@ -3,6 +3,7 @@ defaults:
   - backbone: conv
   - dataset: fashion_mnist
   - trainer: default
+  - logger: wandb
   - override hydra/job_logging: default
   - override hydra/hydra_logging: default
   - _self_

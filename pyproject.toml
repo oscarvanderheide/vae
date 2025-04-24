@@ -11,6 +11,7 @@ dependencies = [
     "lightning>=2.5.0.post0",
     "matplotlib>=3.10.0",
     "numpy>=2.2.2",
+    "omegaconf>=2.3.0",
     "pyqt5>=5.15.11",
     "torch>=2.6.0",
     "torchvision>=0.21.0",

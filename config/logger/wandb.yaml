@@ -1,0 +1,24 @@
+# WandB logger configuration for PyTorch Lightning
+_target_: pytorch_lightning.loggers.WandbLogger
+
+# W&B project name
+project: "vae" # Replace with your desired project name
+
+# Optional: W&B entity (username or team name)
+# entity: "your_wandb_entity" 
+
+# Run name (can be customized, defaults to a random name)
+# name: ${hydra:job.override_dirname} # Example: Use Hydra's override dir name
+name: null # Let WandB generate a name
+
+# Where to save wandb logs locally (defaults to ./wandb)
+save_dir: "." 
+
+# Log model checkpoints to W&B
+log_model: False # Set to True or "all" to save checkpoints
+
+# How often to log checkpoints (if log_model is True)
+# checkpoint_name: null 
+
+# Log every N steps
+# log_every_n_steps: 50 

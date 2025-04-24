@@ -55,6 +55,98 @@ class ConvParams:
     stride: int = 2
     padding: int = 1
     use_skip_connections: bool = True
+    use_residual_blocks: bool = False
+
+
+class ConvBlock(nn.Module):
+    """
+    Implements a Convolutional Block that can optionally function as a Residual Block.
+
+    Args:
+        in_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
+        params (ConvParams): Configuration parameters for the convolutional block.
+        transpose (bool): If True, uses transposed convolution (upsampling).
+        output_padding (tuple, optional): Output padding for transposed convolution to ensure
+            the output shape matches the target shape. Default: None.
+    """
+
+    expansion = 1  # For basic blocks; ResNet Bottleneck blocks use expansion=4
+
+    def __init__(
+        self, in_channels, out_channels, params, transpose, output_padding=None
+    ):
+        super(ConvBlock, self).__init__()
+        self.use_residual = params.use_residual_blocks
+
+        conv_layer = params.conv_transpose_layer if transpose else params.conv_layer
+        conv_kwargs = {
+            "kernel_size": params.kernel_size,
+            "stride": params.stride,
+            "padding": params.padding,
+            "bias": False,  # Typically False when using BatchNorm
+        }
+        if transpose:
+            conv_kwargs["output_padding"] = (
+                output_padding if output_padding is not None else 0
+            )  # Add output_padding if transpose
+
+        # --- Main Path (Always Present) ---
+        self.conv = conv_layer(
+            in_channels,
+            out_channels,
+            **conv_kwargs,  # Use keyword arguments
+        )
+        self.normalization = params.normalization(out_channels)
+        self.activation = params.activation()  # First ReLU activation
+
+        # --- Shortcut Path (Only if use_residual is True) ---
+        self.downsample = None
+        # Define downsample layer *only* if residual connection is used AND needed
+        if self.use_residual and (
+            params.stride != 1 or in_channels != out_channels * self.expansion
+        ):
+            # Adjust shortcut for transpose convolution if needed (might require different kernel/stride)
+            shortcut_kwargs = {
+                "kernel_size": 1,
+                "stride": params.stride,
+                "bias": False,
+            }
+            if transpose:
+                # Transposed shortcut might need adjustment, e.g., matching output_padding
+                # For kernel_size=1, output_padding might not be directly applicable in the same way.
+                # This part might need careful review depending on the exact residual architecture desired with transpose.
+                # For now, assume standard ConvTranspose for shortcut if needed.
+                shortcut_kwargs["output_padding"] = (
+                    output_padding if output_padding is not None else 0
+                )
+
+            self.downsample = nn.Sequential(
+                conv_layer(  # Use the same layer type (conv or transpose)
+                    in_channels, out_channels * self.expansion, **shortcut_kwargs
+                ),
+                params.normalization(out_channels * self.expansion),
+            )
+
+        self.final_relu = params.activation()
+
+    def forward(self, x):
+        # Store the input only if using residual connection
+        identity = x if self.use_residual else None
+
+        # --- Main Path ---
+        out = self.conv(x)
+        out = self.normalization(out)
+        out = self.activation(out)  # Apply first ReLU here
+
+        if self.use_residual:
+            if self.downsample is not None:
+                identity = self.downsample(identity)
+            out = out + identity
+
+        out = self.activation(out)
+
+        return out
 
 
 class ConvBackbone(AbstractBackbone):
@@ -87,27 +179,23 @@ class ConvBackbone(AbstractBackbone):
         """Builds the convolutional feature extractor (encoder) layers."""
         # Input channels are the channels of the sample (e.g., 1 for grayscale, 3 for RGB, 4 for MRI modalities)
         chan_dim_before_conv = self.sample_shape[0]
-        p = self.params
+        params = self.params
         self.feature_extractor_layers = (
             nn.ModuleList()
         )  # Use ModuleList to store layers
 
         # Sequentially add convolutional blocks (Conv -> Norm -> Activation)
-        for i in range(len(p.hidden_dims)):
-            chan_dim_after_conv = p.hidden_dims[i]  # Output channels for this layer
+        for i in range(len(params.hidden_dims)):
+            chan_dim_after_conv = params.hidden_dims[
+                i
+            ]  # Output channels for this layer
 
             # Create a block: Convolution -> Normalization -> Activation
-            conv_block = nn.Sequential(
-                p.conv_layer(  # e.g., nn.Conv2d or nn.Conv3d
-                    in_channels=chan_dim_before_conv,
-                    out_channels=chan_dim_after_conv,
-                    kernel_size=p.kernel_size,
-                    stride=p.stride,
-                    padding=p.padding,
-                ),
-                p.normalization(chan_dim_after_conv),  # e.g., nn.BatchNorm2d/3d
-                p.activation(),  # e.g., nn.ReLU()
+            # with optional residual connections
+            conv_block = ConvBlock(
+                chan_dim_before_conv, chan_dim_after_conv, params, transpose=False
             )
+
             self.feature_extractor_layers.append(conv_block)
 
             # Update the input channel dimension for the next layer
@@ -172,17 +260,25 @@ class ConvBackbone(AbstractBackbone):
             )
 
             # Create a block: Transposed Convolution -> Normalization -> Activation
-            upsample_block = nn.Sequential(
-                p.conv_transpose_layer(  # e.g., nn.ConvTranspose2d/3d
-                    in_channels=chan_dim_before_conv,
-                    out_channels=chan_dim_after_conv,
-                    kernel_size=p.kernel_size,
-                    stride=p.stride,
-                    padding=p.padding,
-                    output_padding=output_padding,
-                ),
-                p.normalization(chan_dim_after_conv),  # e.g., nn.BatchNorm2d/3d
-                p.activation(),  # e.g., nn.ReLU()
+            # upsample_block = nn.Sequential(
+            #     p.conv_transpose_layer(  # e.g., nn.ConvTranspose2d/3d
+            #         in_channels=chan_dim_before_conv,
+            #         out_channels=chan_dim_after_conv,
+            #         kernel_size=p.kernel_size,
+            #         stride=p.stride,
+            #         padding=p.padding,
+            #         output_padding=output_padding,
+            #     ),
+            #     p.normalization(chan_dim_after_conv),  # e.g., nn.BatchNorm2d/3d
+            #     p.activation(),  # e.g., nn.ReLU()
+            # )
+
+            upsample_block = ConvBlock(
+                chan_dim_before_conv,
+                chan_dim_after_conv,
+                p,
+                transpose=True,
+                output_padding=output_padding,
             )
             self.sample_generator_layers.append(upsample_block)
 
